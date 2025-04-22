@@ -50,15 +50,20 @@ pico_enable_stdio_usb(TimingBoxPico 0)
 
 # Add the standard library to the build
 target_link_libraries(TimingBoxPico
-        pico_stdlib
-        pico_multicore
-        pico_time
-        hardware_clocks)
+        pico_stdlib)
 
 # Add the standard include files to the build
 target_include_directories(TimingBoxPico PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
+
+target_link_libraries(TimingBoxPico
+        hardware_pio
+        pico_multicore
+        pico_time
+        hardware_clocks
+        )                      
+
 
 pico_add_extra_outputs(TimingBoxPico)
 
