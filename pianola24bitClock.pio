@@ -1,0 +1,60 @@
+/* 
+State Machine that acts as a 24bit clock with output capturable from the main C code.
+Clock counts down from 0xffffff and wraps arround when it reaches zero.
+Each clock tick takes 10 state machine instructions (10 real clock cycles)
+Time base is then 8ns * 10 * clkDiv which should beat the current 1us resolution of
+the inbuild time_us_32() function. 
+In principle the bit depth of the clock is configurable. Just change the "out x, 24"
+
+To Do: For those of the twisted persuasion there's probably a cyle or two per clock tick
+that can be shaved off but caveat emptor. 
+This would likely be using some auto pushes to save an instruction
+Or if theres a smarter way to initialise the clock to all ones.
+*/
+
+.program pianolaClock
+;status register is set to all zeros when theres something in the txfifo
+.mov_status txfifo < 1 
+.wrap_target
+
+;init the x register and flush the osr once were done using it as a temp scratch register
+set x, 0b00000 ; set x to 0
+mov osr, ~x ; move inverse (all ones) to osr
+out x, 24 ; move back only 24 bits
+out NULL, 32; ; clear osr
+
+; check status register if we need to response a time
+; if no request or underflow then handle that
+wait1:
+    mov y, status
+    jmp !y sendresp
+    jmp !x clr0
+    jmp x-- wait1 [6]
+
+; push response to the rxfifo
+sendresp:
+    mov isr, x
+    push noblock
+    jmp !x clr
+    jmp x-- wait1 [4]
+
+;some extra labels to catch x == 0 prior to decrement
+clr0:
+    jmp clr [1]
+clr:
+    nop
+.wrap
+
+
+%c-sdk {
+    static inline void pianolaClock_program_init(PIO pio, uint sm, uint offset, uint32_t clkDivisorFP)
+    {
+        pio_sm_config config = pianolaClock_program_get_default_config(offset);
+        uint16_t clkDivisorINT = (clkDivisorFP >> 8) & 0xFFFF;
+        uint8_t clkDivisorFRAC = clkDivisorFP & 0xFF;
+        sm_config_set_clkdiv_int_frac8(&config, clkDivisorINT,clkDivisorFRAC);
+  
+        pio_sm_init(pio, sm, offset, &config);
+    }
+
+%}

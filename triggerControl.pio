@@ -1,0 +1,59 @@
+; Use a singla state machine to control when 
+; and for how long a set of 4 pins go high
+; pin mapping, delays, and duration are contained 
+;in a 32 bit word
+; MSB --------------------------- LSB
+; | Duration 24 bits | PinCMD 8bits |
+.program triggerControl
+.wrap_target
+pull block                                  ; pull in word from fifo into osr. Block until the fifo has data
+out pins, 4                                 ; shift 4 bits to the pins
+out NULL, 4                                 ; dump 4 bits from the osr because we only use 4 bits for the pins
+mov x, osr                             ; move 24 bits from osr into x register
+loopDuration:
+    jmp x-- loopDuration
+    jmp !x clrpins
+clrpins:                    ; decrement x, loop while x neq 0
+    set pins, 0
+.wrap
+;; write the sdk
+% c-sdk {
+// helper function for the triggerControl.pio program
+    static inline void triggerControl_program_init(PIO pio, uint sm, uint offset, uint pin, uint32_t clkDivisorFP)
+    {
+        // configure the sm using standard config
+
+        pio_sm_config config = triggerControl_program_get_default_config(offset);
+
+
+        // map the set and out pin group "pins" to the correct bank of GPIOs.
+        // pins need to have consecutive addresses. Otherwise us sm_config_set_set_pins_mask???
+
+        sm_config_set_set_pins(&config, pin, 4);
+        sm_config_set_out_pins(&config, pin, 4);
+
+        // set clock divider
+        // clock divider is 16:8 Fixed Point integer
+        uint16_t clkDivisorINT = (clkDivisorFP >> 8) & 0xFFFF;
+        uint8_t clkDivisorFRAC = clkDivisorFP & 0xFF;
+        sm_config_set_clkdiv_int_frac8(&config, clkDivisorINT, clkDivisorFRAC);
+
+
+        
+        // tell the PIO which GPIO pins itll be talking to
+        for (int i = 0; i < 5; i++)
+        {
+            pio_gpio_init(pio, pin + i);
+        }
+
+        // set the pin directions - true for output, false for input
+        pio_sm_set_consecutive_pindirs(pio, sm, pin, 4, true);
+
+
+        // load config into the state machine and jump to start of program
+        pio_sm_init(pio, sm, offset, &config);
+        // sm is enabled in the main C code
+    }
+
+    
+%}
